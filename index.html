@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Translation Label Extractor</title>
+<style>
+*{box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f4f6f9;margin:0;color:#182033}header{background:#fff;border-bottom:1px solid #ddd;padding:20px 28px}main{max-width:1100px;margin:24px auto;padding:0 18px}.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:18px;margin-bottom:18px}textarea{width:100%;height:360px;padding:12px;font:13px Consolas,monospace;border:1px solid #bbb;border-radius:8px;resize:vertical}button{padding:10px 15px;margin:10px 6px 0 0;border:0;border-radius:7px;font-weight:bold;cursor:pointer}.primary{background:#315efb;color:#fff}.success{background:#198754;color:#fff}.danger{background:#dc3545;color:#fff}table{width:100%;border-collapse:collapse;margin-top:15px}th,td{border:1px solid #ddd;padding:10px;text-align:left}th{background:#f0f2f5}.empty{text-align:center;color:#777;padding:30px}.status{margin-top:12px;color:#555}.badge{background:#e9efff;color:#315efb;padding:4px 9px;border-radius:20px;font-size:12px}.hint{font-size:12px;color:#666;margin-top:8px}
+</style>
+</head>
+<body>
+<header><div style="font-size:22px;font-weight:bold">Translation Label Extractor</div><div style="color:#666;font-size:13px;margin-top:4px">Extract variable labels from tags containing translatable="0" or translateable="0"</div></header>
+<main>
+<div class="card">
+<h3>Script Input</h3>
+<textarea id="script" placeholder="Paste your Decipher / Forsta script here..."></textarea>
+<div class="hint">The extractor checks the same opening tag as the translatable/translateable attribute and reads only its label attribute.</div>
+<br><button class="primary" id="extractButton">Extract Labels</button><button id="dummyButton">Load Dummy Data</button><button id="clearButton">Clear</button>
+<div id="status" class="status">Ready.</div>
+</div>
+<div class="card">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h3 style="margin:0">Extracted Labels <span id="count" class="badge">0</span></h3><button class="success" id="exportButton">Export Excel</button></div>
+<table><thead><tr><th>Variable Label</th><th>Translatable</th></tr></thead><tbody id="results"><tr><td colspan="2" class="empty">No labels yet.</td></tr></tbody></table>
+</div>
+</main>
+<script>
+(function(){
+'use strict';
+
+// Intentionally hidden from the UI. These labels are excluded from results and Excel.
+const EXCLUDED_LABELS = new Set([
+'invalidURL','hCntry','MaruSource','dmRand','srvyType','srvyMode','dmJobNum','srvyWave','srvyResp','srvyComp','srvyEmail','dfOptions','isqOptions','scrIntroTitle','isqHPT','vrsSessionID','vrsResults','dqcResults','dfDupe','dfFraud','netGen','finGen','netAge','netGenAge','dmCurrentYear','dmCalcYOB','netGeneration','hQRATimeSpent','hQRACPS','isqRI1B','netRegionCA','netEduCA','dmHhIncCAWhy','netHhIncCA','dmRaceMCAWhy','finRaceMCA','netRaceMCA','netRegionUS','netEduUS','dmHhIncUSWhy','net2HhIncUS','dmHispUSWhy','dmRaceMUSWhy','finRaceMUS','netRaceMUS','net2RaceMUS','netMarStat','netHhSize','netEmploy','netPolAff','netSmokeStat','isqLOI','isqRI1','isqRI2','isqRI3','isqRI4','isqRI5','isqSL','isqOE','isqIC1','isqIC2','isqIC3','isqIC4','isqIC5','isqFail','isqFailNum','srvyOELen','srvyVerStr','srvyVerEnd'
+]);
+
+let labels=[];
+
+function extractLabels(){
+  const text=document.getElementById('script').value||'';
+  labels=[];
+  if(!text.trim()){setStatus('Please paste a script.');render();return;}
+
+  // Match complete opening tags. This handles attributes spread across many lines.
+  // It deliberately does not try to parse the document as XML.
+  const tagPattern=/<(?:[A-Za-z_][A-Za-z0-9_.:-]*)(?:\s+[^<>]*?)?>/gs;
+  let tagMatch;
+  while((tagMatch=tagPattern.exec(text))!==null){
+    const tag=tagMatch[0];
+    const flag=/(?:translatable|translateable)\s*=\s*["']0["']/i.test(tag);
+    if(!flag) continue;
+    const labelMatch=/\blabel\s*=\s*["']([^"']+)["']/i.exec(tag);
+    if(!labelMatch) continue;
+    const label=labelMatch[1].trim();
+    if(!label || EXCLUDED_LABELS.has(label) || labels.includes(label)) continue;
+    labels.push(label);
+  }
+  render();
+  setStatus(labels.length ? `Found ${labels.length} matching label(s).` : 'No matching labels found.');
+}
+
+function render(){
+  const body=document.getElementById('results');
+  document.getElementById('count').textContent=labels.length;
+  if(!labels.length){body.innerHTML='<tr><td colspan="2" class="empty">No labels yet.</td></tr>';return;}
+  body.innerHTML=labels.map(label=>`<tr><td>${escapeHtml(label)}</td><td>0</td></tr>`).join('');
+}
+
+function loadDummy(){
+  document.getElementById('script').value=`<radio
+   label="srvyVerEnd"
+   cond="0"
+   fwidth="3"
+   onLoad="copy('srvyVerStr',rows=True)"
+   translateable="0"
+   where="execute,survey,report">
+    <title>Survey Version (End)</title>
+</radio>
+
+<radio label="Q1" translatable="0">
+    <title>Question One</title>
+</radio>
+
+<checkbox label="Q2" translatable="1">
+    <title>Do not extract</title>
+</checkbox>
+
+<radio label="srvyOELen" translatable="0">
+    <title>Excluded hidden label</title>
+</radio>
+
+<textarea label="Q3" translatable="0">
+    <title>Question Three</title>
+</textarea>`;
+  extractLabels();
+}
+
+function clearAll(){labels=[];document.getElementById('script').value='';render();setStatus('Cleared.');}
+
+function exportExcel(){
+  if(!labels.length){alert('There are no labels to export.');return;}
+  const rows=labels.map(label=>`<tr><td>${escapeHtml(label)}</td><td>0</td></tr>`).join('');
+  const content='<!doctype html><html><head><meta charset="UTF-8"></head><body><table border="1"><tr><th>Variable Label</th><th>Translatable</th></tr>'+rows+'</table></body></html>';
+  const blob=new Blob(['\ufeff',content],{type:'application/vnd.ms-excel'});
+  const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='translatable-0-labels.xls';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function escapeHtml(value){return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function setStatus(message){document.getElementById('status').textContent=message;}
+document.getElementById('extractButton').addEventListener('click',extractLabels);
+document.getElementById('dummyButton').addEventListener('click',loadDummy);
+document.getElementById('clearButton').addEventListener('click',clearAll);
+document.getElementById('exportButton').addEventListener('click',exportExcel);
+render();
+})();
+</script>
+</body>
+</html>
